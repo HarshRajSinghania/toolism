@@ -17,6 +17,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- SL002 now hoists `format`, `pattern`, `minLength` and `maxLength` when rewriting a nullable
+  `anyOf`/`oneOf`, so `date | None` (`anyOf: [{type: string, format: date}, {type: null}]`)
+  becomes `{type: [string, null], format: date}`. It only does so when exactly one branch is
+  `type: string` and no other branch can be a string; any other extra keyword leaves the node
+  unchanged.
 - `--verify` no longer throws away every change to a tool when one rule breaks it: it finds the
   rules responsible, reverts only those, and keeps the other rules' savings (re-verified).
   `Rollback` gains a `reverted` field, also in the JSON report.
