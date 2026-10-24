@@ -2,65 +2,92 @@
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const {
+  NEWCOMER_MERGED_PR_LIMIT,
   linkedIssues,
+  prsForIssue,
   replyToIssueComment,
   reviewPullRequest,
 } = require("./assignment-policy.js");
 
 const REPO = "https://github.com/owner/repo";
 const user = (login, type = "User") => ({ login, type });
-const issue = (labels, assignees = [], extra = {}) => ({
+const issue = (labels, extra = {}) => ({
   number: 7,
   state: "open",
   labels: labels.map((name) => ({ name })),
-  assignees: assignees.map((login) => ({ login })),
   ...extra,
 });
 const comment = (login, association = "NONE") => ({
   user: user(login),
   author_association: association,
 });
+const openPr = (number, login, body, created_at, association = "CONTRIBUTOR") => ({
+  number,
+  user: user(login),
+  author_association: association,
+  body,
+  created_at,
+});
 
-test("good first issue, unassigned: explains that a maintainer assigns it", () => {
+test("the newcomer limit is 5 merged PRs", () => {
+  assert.equal(NEWCOMER_MERGED_PR_LIMIT, 5);
+});
+
+test("good first issue with no PR yet: go ahead and open one, no assignment", () => {
   const reply = replyToIssueComment({
     issue: issue(["good first issue"]),
     comment: comment("newbie"),
     repoUrl: REPO,
   });
   assert.match(reply, /@newbie/);
-  assert.match(reply, /assigned by a maintainer/);
-  assert.match(reply, /CONTRIBUTING\.md#picking-an-issue/);
+  assert.match(reply, /No need to wait for assignment/);
+  assert.match(reply, /Closes #7/);
+  assert.match(reply, /first one that's ready/);
+  assert.match(reply, /fewer than 5 merged/);
+  assert.doesNotMatch(reply, /wait until/);
   assert.match(reply, /<!-- assignment-policy:claim:newbie -->/);
 });
 
-test("already assigned to someone else: points to other issues", () => {
-  const reply = replyToIssueComment({
-    issue: issue(["good first issue"], ["first"]),
-    comment: comment("second"),
-    repoUrl: REPO,
-  });
-  assert.match(reply, /already assigned to @first/);
-  assert.match(reply, /labels\/good%20first%20issue/);
-});
-
-test("help wanted, unassigned: open to anyone", () => {
+test("help wanted: same invitation, without the newcomer line", () => {
   const reply = replyToIssueComment({
     issue: issue(["help wanted"]),
     comment: comment("someone"),
     repoUrl: REPO,
+    mergedCount: 12,
   });
-  assert.match(reply, /open to anyone/);
+  assert.match(reply, /go ahead and open a pull request/);
+  assert.doesNotMatch(reply, /fewer than 5/);
 });
 
-test("stays quiet for maintainers, bots, assignees, other labels, PRs and repeats", () => {
+test("an existing open PR for the issue is pointed out", () => {
+  const reply = replyToIssueComment({
+    issue: issue(["good first issue"]),
+    comment: comment("late"),
+    repoUrl: REPO,
+    openPrs: [openPr(40, "early", "Closes #7", "2026-01-01T00:00:00Z")],
+  });
+  assert.match(reply, /already has an open PR: #40 by @early/);
+});
+
+test("experienced contributors are pointed to help wanted", () => {
+  const reply = replyToIssueComment({
+    issue: issue(["good first issue"]),
+    comment: comment("regular"),
+    repoUrl: REPO,
+    mergedCount: 5,
+  });
+  assert.match(reply, /5 merged PRs/);
+  assert.match(reply, /help%20wanted/);
+});
+
+test("stays quiet for maintainers, bots, other labels, PRs, closed issues and repeats", () => {
   const quiet = [
     { issue: issue(["good first issue"]), comment: comment("me", "OWNER") },
     { issue: issue(["good first issue"]), comment: comment("helper", "COLLABORATOR") },
     { issue: issue(["good first issue"]), comment: { user: user("bot", "Bot") } },
-    { issue: issue(["good first issue"], ["Mine"]), comment: comment("mine") },
     { issue: issue(["bug"]), comment: comment("x") },
-    { issue: issue(["good first issue"], [], { pull_request: {} }), comment: comment("x") },
-    { issue: issue(["good first issue"], [], { state: "closed" }), comment: comment("x") },
+    { issue: issue(["good first issue"], { pull_request: {} }), comment: comment("x") },
+    { issue: issue(["good first issue"], { state: "closed" }), comment: comment("x") },
     {
       issue: issue(["good first issue"]),
       comment: comment("Again"),
@@ -76,47 +103,69 @@ test("linkedIssues finds closing keywords only", () => {
   assert.deepEqual(linkedIssues(null), []);
 });
 
-const pr = (login, association = "CONTRIBUTOR") => ({
-  user: user(login),
-  author_association: association,
+test("prsForIssue returns the PRs linking an issue, oldest first", () => {
+  const prs = [
+    openPr(9, "b", "Fixes #7", "2026-01-02T00:00:00Z"),
+    openPr(8, "a", "Closes #7", "2026-01-01T00:00:00Z"),
+    openPr(10, "c", "Closes #8", "2026-01-01T00:00:00Z"),
+  ];
+  assert.deepEqual(prsForIssue(7, prs).map((pr) => pr.number), [8, 9]);
 });
 
-test("PR for an unassigned or someone else's good first issue gets a note", () => {
+test("a later PR for the same issue gets a note naming the earlier one", () => {
+  const first = openPr(40, "early", "Closes #7", "2026-01-01T00:00:00Z");
+  const second = openPr(47, "late", "Closes #7", "2026-01-02T00:00:00Z");
   const note = reviewPullRequest({
-    pr: pr("eager"),
-    issues: [
-      { ...issue(["good first issue"]), number: 1 },
-      { ...issue(["good first issue"], ["other"]), number: 2 },
-    ],
+    pr: second,
+    issues: [issue(["good first issue"])],
+    openPrs: [first, second],
     mergedCount: 0,
     repoUrl: REPO,
   });
-  assert.match(note, /#1 is a good first issue that isn't assigned/);
-  assert.match(note, /#2 is a good first issue assigned to someone else/);
-  assert.match(note, /<!-- assignment-policy:pr:eager -->/);
+  assert.match(note, /#7 already has an earlier open PR: #40 by @early/);
+  assert.match(note, /<!-- assignment-policy:pr:late -->/);
+  // The earlier PR itself is not flagged.
+  assert.equal(
+    reviewPullRequest({
+      pr: first,
+      issues: [issue(["good first issue"])],
+      openPrs: [first, second],
+      mergedCount: 0,
+      repoUrl: REPO,
+    }),
+    null,
+  );
 });
 
-test("experienced contributors are pointed to help wanted", () => {
+test("a good first issue PR from an experienced contributor gets a note", () => {
+  const pr = openPr(50, "regular", "Closes #7", "2026-01-01T00:00:00Z");
   const note = reviewPullRequest({
-    pr: pr("regular"),
-    issues: [issue(["good first issue"], ["regular"])],
-    mergedCount: 2,
+    pr,
+    issues: [issue(["good first issue"])],
+    openPrs: [pr],
+    mergedCount: 5,
     repoUrl: REPO,
   });
-  assert.match(note, /2 merged PRs/);
-  assert.match(note, /help%20wanted/);
+  assert.match(note, /5 merged PRs/);
 });
 
-test("PR is fine: assigned newcomer, help wanted, maintainer, or already noted", () => {
+test("no note: first PR from a newcomer, help wanted, maintainer, or already noted", () => {
+  const pr = openPr(50, "newbie", "Closes #7", "2026-01-01T00:00:00Z");
   const fine = [
-    { pr: pr("newbie"), issues: [issue(["good first issue"], ["Newbie"])], mergedCount: 0 },
-    { pr: pr("anyone"), issues: [issue(["help wanted"])], mergedCount: 5 },
-    { pr: pr("me", "OWNER"), issues: [issue(["good first issue"])], mergedCount: 9 },
+    { pr, issues: [issue(["good first issue"])], openPrs: [pr], mergedCount: 4 },
+    { pr, issues: [issue(["help wanted"])], openPrs: [pr], mergedCount: 30 },
     {
-      pr: pr("eager"),
+      pr: openPr(51, "me", "Closes #7", "2026-01-02T00:00:00Z", "OWNER"),
       issues: [issue(["good first issue"])],
+      openPrs: [pr],
+      mergedCount: 9,
+    },
+    {
+      pr: openPr(52, "late", "Closes #7", "2026-01-02T00:00:00Z"),
+      issues: [issue(["good first issue"])],
+      openPrs: [pr],
       mergedCount: 0,
-      previousBodies: ["<!-- assignment-policy:pr:eager -->"],
+      previousBodies: ["<!-- assignment-policy:pr:late -->"],
     },
   ];
   for (const args of fine) assert.equal(reviewPullRequest({ repoUrl: REPO, ...args }), null);

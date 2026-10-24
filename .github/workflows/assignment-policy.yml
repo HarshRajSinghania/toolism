@@ -1,8 +1,10 @@
 name: Assignment policy
 
 # Explains the issue policy in CONTRIBUTING.md ("Picking an issue") where people need it:
-# - someone asks for a good first issue or help wanted issue -> one reply with the rules
-# - a PR links a good first issue it isn't assigned to       -> one note for the maintainers
+# - someone comments on a good first issue or help wanted issue -> one reply: open a PR, no
+#   assignment needed (or: a PR already exists / you're past good first issues)
+# - a PR targets an issue that already has an earlier open PR, or a good first issue from
+#   someone with 5+ merged PRs -> one note for the maintainers
 # It never assigns, closes or labels anything; maintainers decide. The decisions live in
 # .github/scripts/assignment-policy.js (tested in CI).
 #
@@ -35,13 +37,23 @@ jobs:
             const policy = require(`${process.env.GITHUB_WORKSPACE}/.github/scripts/assignment-policy.js`);
             const { owner, repo } = context.repo;
             const issue = context.payload.issue;
+            const comment = context.payload.comment;
             const previous = await github.paginate(github.rest.issues.listComments, {
               owner, repo, issue_number: issue.number, per_page: 100,
             });
+            const openPrs = await github.paginate(github.rest.pulls.list, {
+              owner, repo, state: "open", per_page: 100,
+            });
+            const search = await github.rest.search.issuesAndPullRequests({
+              q: `repo:${owner}/${repo} is:pr is:merged author:${comment.user.login}`,
+              per_page: 1,
+            });
             const body = policy.replyToIssueComment({
               issue,
-              comment: context.payload.comment,
+              comment,
               repoUrl: `${context.serverUrl}/${owner}/${repo}`,
+              openPrs,
+              mergedCount: search.data.total_count,
               previousBodies: previous.map((c) => c.body),
             });
             if (body) {
@@ -79,9 +91,13 @@ jobs:
             const previous = await github.paginate(github.rest.issues.listComments, {
               owner, repo, issue_number: pr.number, per_page: 100,
             });
+            const openPrs = await github.paginate(github.rest.pulls.list, {
+              owner, repo, state: "open", per_page: 100,
+            });
             const body = policy.reviewPullRequest({
               pr,
               issues,
+              openPrs,
               mergedCount: search.data.total_count,
               repoUrl: `${context.serverUrl}/${owner}/${repo}`,
               previousBodies: previous.map((c) => c.body),

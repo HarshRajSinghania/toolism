@@ -9,22 +9,22 @@ part, you agree to uphold it.
 
 ## Picking an issue
 
-Issues come in two kinds, and they work differently:
+You don't need to be assigned. Pick an issue and open a pull request.
 
 | Label | Who can take it | How |
 | --- | --- | --- |
-| [good first issue](https://github.com/rakeshnitb23/toolism/labels/good%20first%20issue) | People new to toolism (fewer than 2 merged PRs here) | Comment to ask, then **wait until a maintainer assigns it to you** before opening a PR |
-| [help wanted](https://github.com/rakeshnitb23/toolism/labels/help%20wanted) | Anyone | No assignment needed: comment with your plan, then open a draft PR early |
+| [good first issue](https://github.com/rakeshnitb23/toolism/labels/good%20first%20issue) | People new to toolism: **fewer than 5 merged PRs here** | Open a PR. A short comment on the issue first ("working on this") is welcome but not required |
+| [help wanted](https://github.com/rakeshnitb23/toolism/labels/help%20wanted) | Anyone | Same, but share your plan on the issue first for design questions |
 
-- **One good first issue per person at a time.** Finish or drop it before asking for another.
-- **First to ask, first assigned.** If several people ask for the same good first issue, it
-  usually goes to whoever asked first.
-- **PRs for a good first issue that isn't assigned to you will be closed**, so that newcomers who
-  asked and waited aren't overtaken.
-- **Stuck or busy?** Say so on the issue; that's fine. If an assigned issue has no activity for
-  7 days, a maintainer may reassign it.
-- A bot replies with these rules when you ask, and notes it on a PR that links an issue it isn't
-  assigned to. It never closes anything itself; maintainers decide.
+- **First PR wins.** If several people open PRs for the same issue, the first one that's ready
+  (CI green and following this guide) is reviewed first. Others may be closed as duplicates, so
+  check the issue's linked PRs before starting.
+- **Open a draft PR early** if the work takes more than a day, so others can see it's taken.
+- **Link the issue** in your PR description: `Closes #N`.
+- **5 or more merged PRs?** Please leave good first issues to newcomers and pick a help wanted
+  issue instead.
+- A bot answers questions on these issues with the rules above, and notes on a PR when another
+  open PR already targets the same issue. It never closes anything; maintainers decide.
 
 ## Development setup
 

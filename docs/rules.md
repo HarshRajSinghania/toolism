@@ -18,6 +18,7 @@ annotations and run with `--level annotations`. Turn any rule on or off with `--
 | [`SL007`](#sl007-stable-order) | stable-order | safe | `--enable SL007` |
 | [`SL008`](#sl008-noop-keywords) | noop-keywords | safe | default |
 | [`SL009`](#sl009-schema-uri) | schema-uri | safe | default |
+| [`SL010`](#sl010-single-allof) | single-allof | safe | default |
 | [`SL101`](#sl101-max-description-length) | max-description-length | annotations | `--level annotations` |
 | [`SL102`](#sl102-drop-examples) | drop-examples | annotations | `--level annotations` |
 | [`SL103`](#sl103-drop-titles) | drop-titles | annotations | `--level annotations` |
@@ -130,6 +131,24 @@ zod-to-json-schema and many MCP servers add `"$schema": "http://json-schema.org/
 schema#"` to every tool — 10-15 tokens each that the model has no use for. Without
 `$schema` validators assume 2020-12, so the URI is only dropped when nothing in the schema
 behaves differently between the declared draft and 2020-12. Draft-04 is never touched.
+
+- Safety: `safe` — Validation-equivalent; removes only provably redundant information.
+- Enabled by: default
+
+## SL010 single-allof
+
+**Collapse single-branch allOf when merging preserves validation.**
+
+A single `allOf` branch can be merged into its parent when their keywords are
+independent. Duplicate keywords (including annotations) are never overwritten. Groups
+that depend on sibling keywords, such as `properties`/`additionalProperties` and
+`if`/`then`/`else`, must stay on one side of the boundary. Unevaluated keywords,
+unknown keywords and moved definition containers are left alone.
+
+Strict tools, unknown or nested dialects, dynamic scopes and references other than
+root-definition pointers are skipped. This keeps reference targets and scope intact.
+Under draft <= 7 a branch's `$ref` is only hoisted when it gains no siblings; a parent
+`$ref` is left alone. Keyword order and all annotation values are preserved.
 
 - Safety: `safe` — Validation-equivalent; removes only provably redundant information.
 - Enabled by: default

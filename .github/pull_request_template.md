@@ -4,7 +4,7 @@
 
 ## Checklist
 
-- [ ] The linked issue is a help wanted issue, or a good first issue assigned to me
+- [ ] Links its issue (`Closes #N`); for a good first issue, I have fewer than 5 merged PRs here
 - [ ] Tests added or updated (rule changes: fixture cases in `tests/fixtures/rules/`)
 - [ ] `uv run ruff check . && uv run mypy && uv run pytest -m "not slow"` pass
 - [ ] New or changed rule: `uv run pytest -m slow tests/test_bench.py` passes and `docs/rules.md` is regenerated

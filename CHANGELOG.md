@@ -8,12 +8,17 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- SL010 `single-allof` collapses single-branch `allOf` wrappers when their keywords can be
+  merged without changing validation. Strict tools and uncertain dialect or reference scopes
+  are left alone.
+
 - `examples/openai_startup.py`: `slim_tools` with the OpenAI SDK.
 - README: offline use of the default tokenizer, a security note on `--mcp`, a cost estimate
   in the FAQ, and a Stability section defining the public API and the deprecation policy.
 - `SL103 drop-titles`: opt-in annotation-level rule that removes schema `title` keywords.
 - pre-commit hook `toolism-check` (`.pre-commit-hooks.yaml`), the same budget gate as
   `toolism check`, run before each commit.
+- Python 3.14 is now tested in CI and listed in the package classifiers.
 
 ### Changed
 
