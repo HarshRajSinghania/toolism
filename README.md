@@ -77,6 +77,18 @@ $ toolism measure --mcp "npx -y @modelcontextprotocol/server-github"
 `--mcp` runs that command exactly as your shell would, with your environment, so only point it
 at servers you would run anyway. See [SECURITY.md](SECURITY.md).
 
+**Preview** what slimming changes, as a unified diff per changed tool:
+
+```bash
+toolism diff examples/mcp_tools.json
+toolism diff examples/mcp_tools.json --level annotations -o tools.diff
+```
+
+The preview shows normalized JSON for each tool's name, description and input schema.
+Unchanged tools are omitted; a tool-order change alone produces no diff. `--level`,
+`--enable`, `--disable` and `--option` select the same rewrites as `slim`. The preview runs
+locally without a reporting-tokenizer call. Use `-` for stdin and `--output` to write a file.
+
 **Gate** it in CI against a committed baseline:
 
 ```console
@@ -251,6 +263,9 @@ The hook runs whenever a matching file is staged. Create the baseline once with
 | `heuristic` | offline, no dependencies; within ~3% of o200k on the benchmark |
 | `anthropic:<model>` | exact counts from Anthropic's `count_tokens` API (needs `ANTHROPIC_API_KEY`) |
 
+For machine-readable reports, see [JSON output](docs/json-output.md): `measure -f json`,
+`slim -r json`, and `check -f json` share the versioned `toolism_report: 1` format.
+
 The default tokenizer downloads its vocabulary file (a few MB) once on first use. Offline, behind
 a proxy that blocks it, or in locked-down CI, use `-t heuristic`, or download it once and point
 `TIKTOKEN_CACHE_DIR` at the cache (in GitHub Actions, cache that directory with `actions/cache`).
@@ -258,6 +273,21 @@ a proxy that blocks it, or in locked-down CI, use `-t heuristic`, or download it
 Counts are taken on a provider-neutral rendering of each tool. Providers wrap tools in their own
 prompt format, which adds overhead per tool that no schema change can remove. Reports always name
 the tokenizer and say whether the count is approximate. Set a default with `TOOLISM_TOKENIZER`.
+
+## Environment variables
+
+| Variable | Read in | What it does | When unset |
+| --- | --- | --- | --- |
+| `TOOLISM_TOKENIZER` | `tokenizers/__init__.py` | Default tokenizer when `-t`/`--tokenizer` isn't given (same forms as `-t`) | `tiktoken:o200k_base` |
+| `TOOLISM_DEBUG` | `cli.py`, `loaders/mcp.py` | Any non-empty value shows the full traceback instead of a one-line `error:`, and passes an `--mcp` server's stderr through to yours | One-line errors; the server's stderr is captured and hidden |
+| `NO_COLOR` | `cli.py` | If set (to any value), terminal output is not coloured | Coloured when writing to a terminal |
+| `TIKTOKEN_CACHE_DIR` | tiktoken | Where the `tiktoken:*` vocabulary is cached, so it can be reused offline | tiktoken's default cache in the system temp directory |
+| `ANTHROPIC_API_KEY` | `tokenizers/anthropic_tokenizer.py` | Needed for `-t anthropic:<model>` | `anthropic:` tokenizers fail with exit code 3 |
+| `GITHUB_STEP_SUMMARY` | `cli.py` | `toolism check` appends its Markdown summary to this file (set by GitHub Actions) | No step summary is written |
+
+A server started with `--mcp` inherits toolism's environment. The GitHub Action also reads its
+inputs as `INPUT_*` variables and uses `GITHUB_OUTPUT` and `RUNNER_TEMP`; these are set by the
+runner and don't need to be set by hand.
 
 ## How it differs
 
@@ -298,6 +328,10 @@ across tokenizers: within about 2 percentage points in the [benchmark](bench/RES
 New rules, tokenizers and formats are welcome. A rule is one small module plus a fixture file;
 see [CONTRIBUTING.md](CONTRIBUTING.md) for the 3-step guide and a list of ideas. Everyone taking
 part is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+Merged PRs, reviews and confirmed bug reports earn points on the
+[🏆 contributor leaderboard](https://github.com/rakeshnitb23/toolism/issues?q=is%3Aissue+is%3Aopen+%22Contributor+leaderboard%22+in%3Atitle);
+see [Points and levels](CONTRIBUTING.md#points-and-levels).
 
 ## License
 
