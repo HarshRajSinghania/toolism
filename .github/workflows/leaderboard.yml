@@ -1,18 +1,26 @@
 name: Leaderboard
 
-# Rebuilds the contributor leaderboard issue ("🏆 Contributor leaderboard") every Monday, or on
-# demand from the Actions tab. Rules: CONTRIBUTING.md ("Points and levels"); scoring:
-# .github/scripts/leaderboard.py (tested in CI). It only reads PRs, reviews and issues and edits
-# that one issue; it never checks out or runs contributor code.
+# Keeps the contributor leaderboard up to date:
+# - when a PR is merged: refresh the board and comment on the PR with the points it earned
+# - every Monday (and on demand): refresh the board
+# "The board" is the "🏆 Contributor leaderboard" issue plus the README card, an SVG kept on the
+# unprotected `leaderboard` branch, which only ever holds that one file.
+# Rules: CONTRIBUTING.md ("Points and levels"). Scoring: .github/scripts/leaderboard.py (tested
+# in CI).
+#
+# Security: pull_request_target runs with a write token, so this workflow checks out only
+# .github/scripts from the default branch and never runs code from a pull request.
 
 on:
+  pull_request_target:
+    types: [closed]
   schedule:
     - cron: "17 6 * * 1"  # Mondays 06:17 UTC
   workflow_dispatch:
 
 permissions:
-  contents: read
-  issues: write
+  contents: write       # the `leaderboard` branch (README card)
+  issues: write         # the leaderboard issue and PR comments
   pull-requests: read
 
 concurrency:
@@ -21,13 +29,23 @@ concurrency:
 
 jobs:
   leaderboard:
+    if: github.event_name != 'pull_request_target' || github.event.pull_request.merged
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.repository.default_branch }}
           sparse-checkout: .github/scripts
-      - run: python3 .github/scripts/leaderboard.py --publish
+      - name: Refresh the board
+        if: github.event_name != 'pull_request_target'
+        run: python3 .github/scripts/leaderboard.py --publish
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+      - name: Refresh the board and congratulate the PR
+        if: github.event_name == 'pull_request_target'
+        run: python3 .github/scripts/leaderboard.py --publish --celebrate "$PR_NUMBER"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}

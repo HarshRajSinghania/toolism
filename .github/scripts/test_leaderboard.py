@@ -250,3 +250,157 @@ class TestHelpers:
 
         with mock.patch.dict(os.environ, {}, clear=True):
             assert lb.main([]) == 2
+
+
+# ------------------------------------------------------------------ README card
+
+
+class TestSvgCard:
+    def test_card_lists_this_months_top_contributors_without_maintainers(self) -> None:
+        prs = [
+            pr(1, "ann", "2026-10-22T00:00:00Z", "Closes #2"),
+            pr(2, "bob", "2026-10-21T00:00:00Z", "Closes #1"),
+            pr(3, "boss", "2026-10-20T00:00:00Z", association="OWNER"),
+        ]
+        svg = lb.render_svg(
+            lb.score_prs(prs, ISSUES), now=NOW, maintainer_logins=lb.maintainers(prs, [])
+        )
+        assert svg.startswith("<svg ")
+        assert svg.rstrip().endswith("</svg>")
+        assert "October 2026" in svg
+        assert svg.index("@ann") < svg.index("@bob")
+        assert "35 pts" in svg
+        assert "@boss" not in svg
+
+    def test_card_falls_back_to_all_time_then_to_an_invitation(self) -> None:
+        old = lb.score_prs([pr(1, "ann", "2026-09-01T00:00:00Z")], ISSUES)
+        assert "all time" in lb.render_svg(old, now=NOW, maintainer_logins=set())
+        assert "be the first" in lb.render_svg([], now=NOW, maintainer_logins=set())
+
+    def test_card_escapes_xml_and_caps_rows(self) -> None:
+        when = lb.parse_time("2026-10-10T00:00:00Z")
+        many = [lb.Contribution(f"user{i}", "bug", 5 + i, when, i) for i in range(15)]
+        many.append(lb.Contribution("a<b&c", "bug", 100, when, 99))
+        svg = lb.render_svg(many, now=NOW, maintainer_logins=set())
+        assert "a&lt;b&amp;c" in svg
+        assert "<b&c" not in svg
+        assert svg.count(" pts</text>") == 10
+
+
+# ---------------------------------------------------------------- celebration
+
+
+class TestCelebration:
+    BOARD = "https://github.com/o/r/issues/1"
+
+    def contributions(self) -> list[lb.Contribution]:
+        prs = [
+            pr(1, "ann", "2026-10-01T00:00:00Z", "Closes #1"),
+            pr(2, "ann", "2026-10-02T00:00:00Z"),
+            pr(3, "ann", "2026-10-22T00:00:00Z", "Closes #2", labels=("points: +20",)),
+            pr(4, "boss", "2026-10-22T00:00:00Z", association="OWNER"),
+        ]
+        reviews = [
+            review(3, "ann", "rev", "Ran it locally, works.", "2026-10-21T00:00:00Z"),
+            review(
+                3, "ann", "boss", "Looks good to me.", "2026-10-21T00:00:00Z", association="OWNER"
+            ),
+        ]
+        return [*lb.score_prs(prs, ISSUES), *lb.score_reviews(reviews)]
+
+    def message(self, number: int, author: str) -> str | None:
+        return lb.celebration(
+            self.contributions(),
+            pr_number=number,
+            author=author,
+            now=NOW,
+            maintainer_logins={"boss"},
+            board_url=self.BOARD,
+        )
+
+    def test_points_breakdown_rank_level_up_and_next_level(self) -> None:
+        msg = self.message(3, "ann")
+        assert msg is not None
+        assert "@ann" in msg
+        assert "+50 points" in msg  # help wanted 30 + maintainer bonus 20
+        assert "help wanted issue +30" in msg
+        assert "maintainer bonus +20" in msg
+        assert "**#1** this month" in msg
+        assert "Level up: 🔧 Contributor" in msg  # third merged PR
+        assert "⭐ Regular is 2 more merged PRs away" in msg
+        assert "@rev" in msg  # non-maintainer reviewer thanked
+        assert "@boss" not in msg
+        assert self.BOARD in msg
+        assert msg.rstrip().endswith(lb.CELEBRATE_MARKER)
+
+    def test_first_pr_mentions_bonus_and_no_level_up_wording_twice(self) -> None:
+        msg = self.message(1, "ann")
+        assert msg is not None
+        assert "first merged PR +5" in msg
+        assert msg.count("Level up") == 1  # nobody → 🌱 Newcomer
+
+    def test_no_level_up_when_level_is_unchanged(self) -> None:
+        msg = self.message(2, "ann")  # second PR: still a Newcomer
+        assert msg is not None
+        assert "Level up" not in msg
+        assert "🔧 Contributor is 1 more merged PR away" in msg
+
+    def test_maintainer_prs_get_no_message_unless_someone_reviewed(self) -> None:
+        assert self.message(4, "boss") is None
+
+
+# ------------------------------------------------------------------ GitHub I/O
+
+
+class FakeGitHub(lb.GitHub):
+    """Records requests instead of calling the API."""
+
+    def __init__(self, *, branch_exists: bool, comments: list[str] | None = None) -> None:
+        super().__init__("o/r", "token")
+        self.calls: list[tuple[str, str, Any]] = []
+        self.branch_exists = branch_exists
+        self.comments = comments or []
+
+    def _request(self, method: str, url: str, data: Any = None) -> tuple[Any, str]:
+        self.calls.append((method, url, data))
+        if url == "git/trees":
+            return {"sha": "tree1"}, ""
+        if url == "git/commits":
+            return {"sha": "commit1"}, ""
+        return {}, ""
+
+    def _exists(self, path: str) -> Any:
+        self.calls.append(("GET", path, None))
+        return {"object": {}} if self.branch_exists else None
+
+    def paginate(self, path: str) -> list[Any]:
+        return [{"body": body} for body in self.comments]
+
+
+class TestPublishing:
+    def test_svg_creates_the_branch_the_first_time(self) -> None:
+        gh = FakeGitHub(branch_exists=False)
+        gh.publish_svg("<svg/>")
+        posts = [(m, u) for m, u, _ in gh.calls if m != "GET"]
+        assert posts == [("POST", "git/trees"), ("POST", "git/commits"), ("POST", "git/refs")]
+        tree = gh.calls[0][2]["tree"][0]
+        assert (tree["path"], tree["content"]) == ("leaderboard.svg", "<svg/>")
+        assert gh.calls[1][2]["parents"] == []
+        assert gh.calls[-1][2] == {"ref": "refs/heads/leaderboard", "sha": "commit1"}
+
+    def test_svg_force_moves_an_existing_branch(self) -> None:
+        gh = FakeGitHub(branch_exists=True)
+        gh.publish_svg("<svg/>")
+        assert gh.calls[-1] == (
+            "PATCH",
+            "git/refs/heads/leaderboard",
+            {"sha": "commit1", "force": True},
+        )
+
+    def test_comment_once(self) -> None:
+        gh = FakeGitHub(branch_exists=True)
+        assert gh.comment_once(5, "hi " + lb.CELEBRATE_MARKER, lb.CELEBRATE_MARKER)
+        assert gh.calls[-1][:2] == ("POST", "issues/5/comments")
+        again = FakeGitHub(branch_exists=True, comments=["old " + lb.CELEBRATE_MARKER])
+        assert not again.comment_once(5, "hi", lb.CELEBRATE_MARKER)
+        assert again.calls == []

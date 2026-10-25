@@ -29,8 +29,10 @@ You don't need to be assigned. Pick an issue and open a pull request.
 ## Points and levels
 
 Contributions earn points on the [🏆 Contributor leaderboard](https://github.com/rakeshnitb23/toolism/issues?q=is%3Aissue+is%3Aopen+%22Contributor+leaderboard%22+in%3Atitle),
-which a bot updates every Monday. There's a monthly board, so newcomers always have a race they
-can win, and an all-time one.
+which a bot updates whenever a PR is merged (and every Monday). When your PR is merged, the bot
+comments on it with the points you earned, your rank and your level. The top 10 this month also
+appear on the README. There's a monthly board, so newcomers always have a race they can win, and
+an all-time one.
 
 | Contribution | Points |
 | --- | ---: |

@@ -120,5 +120,31 @@
       "properties": {"a": {"$ref": "#/$defs/S"}, "z": {"$id": "https://example.com/z", "type": "string"}},
       "$defs": {"S": {"type": "string"}, "Unused": {}}
     }}
+  },
+  {
+    "name": "root $id with a non-local $ref leaves a single-use definition alone",
+    "tool": {"name": "t", "schema": {
+      "$id": "https://example.com/tool",
+      "type": "object",
+      "properties": {"a": {"$ref": "#/$defs/S"}, "b": {"$ref": "other.json"}},
+      "required": ["a", "b"],
+      "$defs": {"S": {"type": "string"}}
+    }}
+  },
+  {
+    "name": "root $id alone does not block inlining when every $ref is local",
+    "tool": {"name": "t", "schema": {
+      "$id": "https://example.com/tool",
+      "type": "object",
+      "properties": {"a": {"$ref": "#/$defs/S"}, "b": {"$ref": "#/$defs/T"}},
+      "required": ["a", "b"],
+      "$defs": {"S": {"type": "string"}, "T": {"type": "integer"}}
+    }},
+    "expected_schema": {
+      "$id": "https://example.com/tool",
+      "type": "object",
+      "properties": {"a": {"type": "string"}, "b": {"type": "integer"}},
+      "required": ["a", "b"]
+    }
   }
 ]

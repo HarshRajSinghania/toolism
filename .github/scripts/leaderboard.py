@@ -5,7 +5,8 @@ merged or maintainer-confirmed work scores, and points depend on the issue's lab
 size of a change, so splitting or padding PRs earns nothing.
 
     python3 .github/scripts/leaderboard.py             # print the leaderboard (needs a token)
-    python3 .github/scripts/leaderboard.py --publish   # create or update the leaderboard issue
+    python3 .github/scripts/leaderboard.py --publish   # update the issue and the README card
+    python3 .github/scripts/leaderboard.py --publish --celebrate 123   # ...and congratulate PR #123
 
 Run by .github/workflows/leaderboard.yml with GITHUB_TOKEN and GITHUB_REPOSITORY set. The
 scoring and rendering functions are pure and tested in test_leaderboard.py
@@ -19,6 +20,7 @@ import json
 import os
 import re
 import sys
+import urllib.error
 import urllib.request
 from collections import defaultdict
 from collections.abc import Iterable, Iterator
@@ -44,7 +46,18 @@ REVIEW_STATES = frozenset({"APPROVED", "CHANGES_REQUESTED", "COMMENTED"})
 BONUS_LABEL = re.compile(r"^points:\s*\+(\d+)$", re.IGNORECASE)
 LINK = re.compile(r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)", re.IGNORECASE)
 MARKER = "<!-- toolism-leaderboard -->"
+CELEBRATE_MARKER = "<!-- toolism-leaderboard:celebrate -->"
 TITLE = "🏆 Contributor leaderboard"
+BOARD_BRANCH = "leaderboard"  # unprotected branch holding only the README card
+BOARD_FILE = "leaderboard.svg"
+PR_KINDS = frozenset({"help_wanted_pr", "good_first_issue_pr", "other_pr"})
+KIND_LABELS = {
+    "help_wanted_pr": "help wanted issue",
+    "good_first_issue_pr": "good first issue",
+    "other_pr": "merged PR",
+    "first_pr_bonus": "first merged PR",
+    "bonus": "maintainer bonus",
+}
 
 # (emoji and name, merged PRs needed, reviews needed), highest first.
 LEVELS = (
@@ -282,7 +295,7 @@ def render(
         f"# {TITLE}",
         "",
         f"Updated {now:%Y-%m-%d}. Points come from merged PRs, written reviews and confirmed bug "
-        f"reports; see [Points and levels]({guide}). Updated every Monday.",
+        f"reports; see [Points and levels]({guide}). Updated on every merged PR and every Monday.",
         "",
         f"## This month ({now:%B %Y})",
         "",
@@ -302,6 +315,139 @@ def render(
     if team:
         lines += ["", "## Maintainers (not ranked)", "", *_table(team, repo, ranked=False)]
     lines += ["", MARKER, ""]
+    return "\n".join(lines)
+
+
+def _xml(text: str) -> str:
+    return (
+        text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+    )
+
+
+def render_svg(
+    contributions: list[Contribution],
+    *,
+    now: datetime,
+    maintainer_logins: set[str],
+    top: int = 10,
+) -> str:
+    """A small card with the top contributors, for the README (which can't embed live text).
+
+    Shows this month's ranking, or all-time when nobody has scored this month yet.
+    """
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    rows = [
+        r for r in standings(contributions, since=month_start) if r.login not in maintainer_logins
+    ]
+    heading = f"Top contributors \u2014 {now:%B %Y}"
+    if not rows:
+        rows = [r for r in standings(contributions) if r.login not in maintainer_logins]
+        heading = "Top contributors \u2014 all time"
+    rows = rows[:top]
+    width, row_height, top_pad = 480, 30, 64
+    height = top_pad + max(len(rows), 1) * row_height + 30
+    out = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
+        f'viewBox="0 0 {width} {height}" role="img" aria-label="{_xml(heading)}">',
+        "<style>text{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,"
+        "sans-serif;fill:#1f2328}.muted{fill:#59636e}.points{font-weight:600}</style>",
+        f'<rect x="0.5" y="0.5" width="{width - 1}" height="{height - 1}" rx="10" '
+        'fill="#ffffff" stroke="#d1d9e0"/>',
+        f'<text x="20" y="34" font-size="18" font-weight="600">\U0001f3c6 {_xml(heading)}</text>',
+    ]
+    if not rows:
+        out.append(
+            f'<text x="20" y="{top_pad + 20}" font-size="14" class="muted">'
+            "Nobody yet: be the first!</text>"
+        )
+    for index, (rank, row) in enumerate(_ranked(rows)):
+        y = top_pad + index * row_height + 20
+        medal = {1: "\U0001f947", 2: "\U0001f948", 3: "\U0001f949"}.get(rank, f"{rank}.")
+        out += [
+            f'<text x="20" y="{y}" font-size="15">{medal}</text>',
+            f'<text x="60" y="{y}" font-size="15">@{_xml(row.login)}</text>',
+            f'<text x="270" y="{y}" font-size="13" class="muted">{_xml(row.level)}</text>',
+            f'<text x="{width - 20}" y="{y}" font-size="15" text-anchor="end" class="points">'
+            f"{row.points} pts</text>",
+        ]
+    out += [
+        f'<text x="20" y="{height - 12}" font-size="11" class="muted">'
+        f"Updated {now:%Y-%m-%d} \u00b7 points for merged PRs, reviews and bug reports</text>",
+        "</svg>",
+        "",
+    ]
+    return "\n".join(out)
+
+
+def _next_level(merged_prs: int, reviews: int) -> str | None:
+    """What it takes to reach the next level, or None at the top."""
+    for name, prs_needed, reviews_needed in reversed(LEVELS):
+        if merged_prs < prs_needed or reviews < reviews_needed:
+            missing = []
+            if merged_prs < prs_needed:
+                n = prs_needed - merged_prs
+                missing.append(f"{n} more merged PR{'s' if n != 1 else ''}")
+            if reviews < reviews_needed:
+                n = reviews_needed - reviews
+                missing.append(f"{n} more review{'s' if n != 1 else ''}")
+            return f"{name} is {' and '.join(missing)} away"
+    return None
+
+
+def celebration(
+    contributions: list[Contribution],
+    *,
+    pr_number: int,
+    author: str,
+    now: datetime,
+    maintainer_logins: set[str],
+    board_url: str,
+) -> str | None:
+    """A comment for a just-merged PR: points earned, rank and level. None when nothing scored."""
+    lines: list[str] = []
+    earned = [
+        c
+        for c in contributions
+        if c.ref == pr_number and c.login == author and c.kind in KIND_LABELS
+    ]
+    if earned and author not in maintainer_logins:
+        total = sum(c.points for c in earned)
+        parts = ", ".join(f"{KIND_LABELS[c.kind]} +{c.points}" for c in earned)
+        # Standings as of this merge, so a re-run or a later merge can't change the story.
+        merged_at = max(c.when for c in earned)
+        history = [c for c in contributions if c.when <= merged_at]
+        others = [c for c in history if c not in earned]
+        before = {r.login: r for r in standings(others)}.get(author)
+        after = {r.login: r for r in standings(history)}[author]
+        month_start = merged_at.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        month = [
+            r for r in standings(history, since=month_start) if r.login not in maintainer_logins
+        ]
+        rank = next((rank for rank, row in _ranked(month) if row.login == author), None)
+        lines.append(
+            f"🎉 Merged, thank you @{author}! This PR earned **+{total} points** ({parts})."
+        )
+        lines.append("")
+        standing = f"You're **#{rank}** this month" if rank else "You're on the board"
+        lines.append(f"{standing} with {after.points} points in total, level **{after.level}**.")
+        if before is None or before.level != after.level:
+            lines.append(f"⬆️ **Level up: {after.level}!**")
+        upcoming = _next_level(after.merged_prs, after.reviews)
+        if upcoming:
+            lines.append(f"Next: {upcoming}.")
+    reviewers = sorted(
+        c.login
+        for c in contributions
+        if c.ref == pr_number and c.kind == "review" and c.login not in maintainer_logins
+    )
+    if reviewers:
+        if lines:
+            lines.append("")
+        thanks = ", ".join(f"@{login}" for login in reviewers)
+        lines.append(f"👀 Thanks for reviewing, {thanks}: +{POINTS['review']} points each.")
+    if not lines:
+        return None
+    lines += ["", f"See the [🏆 contributor leaderboard]({board_url}).", CELEBRATE_MARKER, ""]
     return "\n".join(lines)
 
 
@@ -330,6 +476,14 @@ class GitHub:
         )
         with urllib.request.urlopen(request, timeout=30) as response:
             return json.load(response), response.headers.get("Link", "")
+
+    def _exists(self, path: str) -> Any:
+        try:
+            return self._request("GET", path)[0]
+        except urllib.error.HTTPError as error:
+            if error.code == 404:
+                return None
+            raise
 
     def paginate(self, path: str) -> list[Any]:
         items: list[Any] = []
@@ -367,10 +521,45 @@ class GitHub:
         created, _ = self._request("POST", "issues", {"title": TITLE, "body": body})
         return created["html_url"]
 
+    def publish_svg(self, svg: str) -> None:
+        """Replace the leaderboard branch with a single commit holding the README card.
+
+        The branch only ever contains that one file, so it never carries code and never needs
+        branch protection. Each update is a fresh root commit (force-moved ref).
+        """
+        tree, _ = self._request(
+            "POST",
+            "git/trees",
+            {"tree": [{"path": BOARD_FILE, "mode": "100644", "type": "blob", "content": svg}]},
+        )
+        commit, _ = self._request(
+            "POST",
+            "git/commits",
+            {"message": "Update leaderboard card", "tree": tree["sha"], "parents": []},
+        )
+        ref = f"heads/{BOARD_BRANCH}"
+        if self._exists(f"git/ref/{ref}") is None:
+            self._request("POST", "git/refs", {"ref": f"refs/{ref}", "sha": commit["sha"]})
+        else:
+            self._request("PATCH", f"git/refs/{ref}", {"sha": commit["sha"], "force": True})
+
+    def comment_once(self, number: int, body: str, marker: str) -> bool:
+        """Comment on an issue or PR unless a comment carrying ``marker`` is already there."""
+        for existing in self.paginate(f"issues/{number}/comments"):
+            if marker in (existing.get("body") or ""):
+                return False
+        self._request("POST", f"issues/{number}/comments", {"body": body})
+        return True
+
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Build the toolism contributor leaderboard.")
-    parser.add_argument("--publish", action="store_true", help="create or update the issue")
+    parser.add_argument(
+        "--publish", action="store_true", help="update the issue and the README card"
+    )
+    parser.add_argument(
+        "--celebrate", type=int, metavar="PR", help="comment on this just-merged PR"
+    )
     args = parser.parse_args(argv)
     repo, token = os.environ.get("GITHUB_REPOSITORY"), os.environ.get("GITHUB_TOKEN")
     if not repo or not token:
@@ -378,11 +567,29 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     github = GitHub(repo, token)
     contributions, team = github.collect()
-    body = render(contributions, repo=repo, now=datetime.now(timezone.utc), maintainer_logins=team)
-    if args.publish:
-        print(github.publish(body))
-    else:
+    now = datetime.now(timezone.utc)
+    body = render(contributions, repo=repo, now=now, maintainer_logins=team)
+    if not args.publish and args.celebrate is None:
         print(body)
+        return 0
+    board_url = f"https://github.com/{repo}/issues?q=is%3Aissue+%22{TITLE.split(' ', 1)[1]}%22"
+    if args.publish:
+        board_url = github.publish(body)
+        github.publish_svg(render_svg(contributions, now=now, maintainer_logins=team))
+        print(board_url)
+    if args.celebrate is not None:
+        pr, _ = github._request("GET", f"pulls/{args.celebrate}")
+        if pr.get("merged_at"):
+            message = celebration(
+                contributions,
+                pr_number=args.celebrate,
+                author=pr["user"]["login"],
+                now=now,
+                maintainer_logins=team,
+                board_url=board_url,
+            )
+            if message:
+                github.comment_once(args.celebrate, message, CELEBRATE_MARKER)
     return 0
 
 

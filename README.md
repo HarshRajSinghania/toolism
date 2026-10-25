@@ -4,6 +4,7 @@
 [![Python versions](https://img.shields.io/pypi/pyversions/toolism)](https://pypi.org/project/toolism/)
 [![CI](https://github.com/rakeshnitb23/toolism/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/rakeshnitb23/toolism/actions/workflows/ci.yml?query=branch%3Amaster)
 [![License](https://img.shields.io/github/license/rakeshnitb23/toolism)](LICENSE)
+[![Leaderboard](https://img.shields.io/badge/%F0%9F%8F%86-contributor%20leaderboard-orange)](#top-contributors)
 
 **Your agent pays for its tool definitions on every single request. toolism measures that cost
 and cuts it, without changing which tool calls are valid.**
@@ -323,15 +324,21 @@ outputs slightly, so if tool-call accuracy matters, compare on your evals. That 
 "approximate". Use `-t anthropic:<model>` for exact Claude counts. Relative savings are stable
 across tokenizers: within about 2 percentage points in the [benchmark](bench/RESULTS.md).
 
+## Top contributors
+
+<a href="https://github.com/rakeshnitb23/toolism/issues?q=is%3Aissue+is%3Aopen+%22Contributor+leaderboard%22+in%3Atitle">
+  <img src="https://raw.githubusercontent.com/rakeshnitb23/toolism/leaderboard/leaderboard.svg" alt="Top toolism contributors this month">
+</a>
+
+Updated on every merged PR. Merged PRs, written reviews and confirmed bug reports earn points:
+see [Points and levels](CONTRIBUTING.md#points-and-levels) and the
+[full leaderboard](https://github.com/rakeshnitb23/toolism/issues?q=is%3Aissue+is%3Aopen+%22Contributor+leaderboard%22+in%3Atitle).
+
 ## Contributing
 
 New rules, tokenizers and formats are welcome. A rule is one small module plus a fixture file;
 see [CONTRIBUTING.md](CONTRIBUTING.md) for the 3-step guide and a list of ideas. Everyone taking
 part is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
-
-Merged PRs, reviews and confirmed bug reports earn points on the
-[🏆 contributor leaderboard](https://github.com/rakeshnitb23/toolism/issues?q=is%3Aissue+is%3Aopen+%22Contributor+leaderboard%22+in%3Atitle);
-see [Points and levels](CONTRIBUTING.md#points-and-levels).
 
 ## License
 
